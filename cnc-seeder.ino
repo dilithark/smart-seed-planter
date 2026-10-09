@@ -1,109 +1,98 @@
-#include <AccelStepper.h>
-#include <Wire.h>
-#include <LiquidCrystal_I2C.h>
+// SeedSow - ESP32 WebSocket side for seedsow-dashboard.html
+// Libraries: ESPAsyncWebServer + AsyncTCP (ESP32Async versions), ArduinoJson v7
+// Hook your real Motion / Vacuum / Water / Planting modules into the TODO spots.
 
-// Initialize the LCD (Address 0x27 is common, or 0x3F; 16 columns, 2 rows)
-LiquidCrystal_I2C lcd(0x27, 16, 2);
+#include <WiFi.h>
+#include <ESPAsyncWebServer.h>
+#include <ArduinoJson.h>
 
-#define MOTOR_INTERFACE_TYPE 1
-#define X_STEP_PIN 14
-#define X_DIR_PIN  27
-#define Y_STEP_PIN 26
-#define Y_DIR_PIN  25
-#define X_LIMIT_PIN 12
-#define Y_LIMIT_PIN 13
+const char* WIFI_SSID = "YOUR_WIFI";
+const char* WIFI_PASS = "YOUR_PASSWORD";
 
-AccelStepper stepperX(MOTOR_INTERFACE_TYPE, X_STEP_PIN, X_DIR_PIN);
-AccelStepper stepperY(MOTOR_INTERFACE_TYPE, Y_STEP_PIN, Y_DIR_PIN);
+AsyncWebServer server(80);
+AsyncWebSocket ws("/ws");
 
-struct Pot {
-  int row;
-  int col;
-  long x;
-  long y;
-};
+// ---- machine state shared with the planting controller ----
+String state = "IDLE";   // IDLE HOMING PICKING MOVING PLANTING WATERING PAUSED DONE ESTOP ERROR
+int rows = 4, cols = 6, row = 0, col = 0, done = 0, total = 24;
+float depthMm = 8, waterMl = 5;
+float posX = 0, posY = 0, posZ = 0;
+bool tankLow = false, hopperEmpty = false, trayPresent = true, estop = false, vacuumOn = false, pumpOn = false;
 
-Pot hardcodedPotCoordinates[] = {
-  {0, 0, 100, 100}, 
-  {0, 1, 300, 100}, 
-  {0, 2, 500, 100}, 
-  {1, 0, 100, 300}, 
-  {1, 1, 300, 300}, 
-  {1, 2, 500, 300}  
-};
+void sendStatus() {
+  JsonDocument d;
+  d["type"] = "status";
+  d["state"] = state;
+  d["rows"] = rows;   d["cols"] = cols;
+  d["row"] = row;     d["col"] = col;
+  d["done"] = done;   d["total"] = total;
+  d["tankLow"] = tankLow;
+  d["hopperEmpty"] = hopperEmpty;
+  d["trayPresent"] = trayPresent;
+  d["estop"] = estop;
+  d["vacuum"] = vacuumOn;
+  d["pump"] = pumpOn;
+  d["x"] = posX; d["y"] = posY; d["z"] = posZ;
+  String out; serializeJson(d, out);
+  ws.textAll(out);
+}
+
+void handleCommand(JsonDocument& d) {
+  String cmd = d["cmd"] | "";
+  if (cmd == "hello") { sendStatus(); return; }
+
+  if (cmd == "estop") {
+    estop = true; state = "ESTOP";
+    // TODO: disable steppers, vacuum, pump immediately
+  } else if (cmd == "start" && (state == "IDLE" || state == "DONE") && !estop) {
+    rows = d["rows"] | rows;  cols = d["cols"] | cols;
+    depthMm = d["depth"] | depthMm;  waterMl = d["water"] | waterMl;
+    total = rows * cols; done = 0; row = col = 0;
+    state = "HOMING";
+    // TODO: start planting task (home -> generate coordinates -> loop over pots)
+  } else if (cmd == "pause" && state != "IDLE" && state != "DONE") {
+    state = "PAUSED";   // TODO: remember previous step
+  } else if (cmd == "resume" && state == "PAUSED") {
+    state = "MOVING";   // TODO: restore previous step
+  } else if (cmd == "stop") {
+    state = "IDLE";     // TODO: abort task, stop actuators
+  } else if (cmd == "home" && (state == "IDLE" || state == "DONE")) {
+    state = "HOMING";   // TODO: home X, Y, Z, then state = "IDLE"
+  } else if (cmd == "reset") {
+    estop = false; state = "IDLE"; done = 0; row = col = 0;  // TODO: only if e-stop button released
+  }
+  sendStatus();
+}
+
+void onWsEvent(AsyncWebSocket*, AsyncWebSocketClient*, AwsEventType type, void* arg, uint8_t* data, size_t len) {
+  if (type == WS_EVT_CONNECT) {
+    sendStatus();
+  } else if (type == WS_EVT_DATA) {
+    AwsFrameInfo* info = (AwsFrameInfo*)arg;
+    if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
+      JsonDocument d;
+      if (!deserializeJson(d, data, len)) handleCommand(d);
+    }
+  }
+}
 
 void setup() {
   Serial.begin(115200);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  while (WiFi.status() != WL_CONNECTED) { delay(300); Serial.print('.'); }
+  Serial.printf("\nIP address: %s\n", WiFi.localIP().toString().c_str());  // type this into the dashboard
 
-  // Initialize LCD screen
-  lcd.init();                      
-  lcd.backlight();
-  lcd.setCursor(0, 0);
-  lcd.print("System Ready");
-
-  pinMode(X_LIMIT_PIN, INPUT_PULLUP);
-  pinMode(Y_LIMIT_PIN, INPUT_PULLUP);
-
-  stepperX.setMaxSpeed(1000.0);
-  stepperX.setAcceleration(500.0);
-  stepperY.setMaxSpeed(1000.0);
-  stepperY.setAcceleration(500.0);
-
-  homeAxes();
-  runHardcodedPlanting();
+  ws.onEvent(onWsEvent);
+  server.addHandler(&ws);
+  server.begin();
 }
 
 void loop() {
-  // Main loop remains empty
-}
-
-void homeAxes() {
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Homing Axes...");
-
-  stepperX.setSpeed(-400.0);
-  while (digitalRead(X_LIMIT_PIN) == HIGH) { stepperX.runSpeed(); }
-  stepperX.stop();
-  stepperX.setCurrentPosition(0);
-
-  stepperY.setSpeed(-400.0);
-  while (digitalRead(Y_LIMIT_PIN) == HIGH) { stepperY.runSpeed(); }
-  stepperY.stop();
-  stepperY.setCurrentPosition(0);
-}
-
-void runHardcodedPlanting() {
-  int totalPots = sizeof(hardcodedPotCoordinates) / sizeof(hardcodedPotCoordinates[0]);
-
-  for (int i = 0; i < totalPots; i++) {
-    int currentRow = hardcodedPotCoordinates[i].row;
-    int currentCol = hardcodedPotCoordinates[i].col;
-    long targetX = hardcodedPotCoordinates[i].x;
-    long targetY = hardcodedPotCoordinates[i].y;
-
-    // Update Local LCD Display
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("Planting Pot:");
-    lcd.setCursor(0, 1);
-    lcd.print("Row: ");
-    lcd.print(currentRow);
-    lcd.print(" Col: ");
-    lcd.print(currentCol);
-
-    stepperX.moveTo(targetX);
-    stepperY.moveTo(targetY);
-
-    while (stepperX.distanceToGo() != 0 || stepperY.distanceToGo() != 0) {
-      stepperX.run();
-      stepperY.run();
-    }
-
-    delay(1000); // Planting pause
+  static uint32_t last = 0;
+  if (millis() - last > 500) {      // push live status twice a second
+    last = millis();
+    // TODO: read float sensor, IR sensors, e-stop pin, stepper positions here
+    sendStatus();
   }
-
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Sequence Complete");
+  ws.cleanupClients();
 }
