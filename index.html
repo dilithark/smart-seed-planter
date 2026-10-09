@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SeedSow Control Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">
+    <div class="brand-icon">S</div>
+    <div>
+      <b>SeedSow</b>
+      <span>Automated Planting & Precision Watering</span>
+    </div>
+  </div>
+  <div class="conn">
+    <input id="host" type="text" placeholder="ESP32 IP address (e.g. 192.168.1.50)" aria-label="ESP32 address" spellcheck="false">
+    <button class="btn primary" id="connect">Connect</button>
+    <button class="btn" id="demo">Try demo</button>
+    <div class="link"><span class="dot" id="linkDot"></span><span id="linkText">Not connected</span></div>
+  </div>
+</header>
+
+<main>
+  <section aria-label="Tray progress">
+    <div class="card">
+      <div class="head">
+        <div>
+          <div class="state" id="state" aria-live="polite">Offline</div>
+          <div class="where" id="where">Connect to the machine to begin.</div>
+        </div>
+        <div class="count">
+          <span id="done">0</span> / <span id="total">0</span>
+          <small>pots planted</small>
+        </div>
+      </div>
+      
+      <div class="tray"><div id="grid"></div></div>
+      
+      <div class="legend">
+        <span><i style="background:var(--well)"></i>Waiting</span>
+        <span><i style="background:var(--leaf)"></i>Planted & Watered</span>
+        <span><i style="background:var(--warn)"></i>Working</span>
+        <span><i style="background:var(--water)"></i>Watering</span>
+      </div>
+
+      <div class="progress"><div id="bar"></div></div>
+      
+      <dl class="times">
+        <div><dt>Complete</dt><dd id="pct">0%</dd></div>
+        <div><dt>Elapsed</dt><dd id="elapsed">0:00</dd></div>
+        <div><dt>Time Left</dt><dd id="eta">—</dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <aside>
+    <div class="card">
+      <h2>Camera Stream</h2>
+      <div class="cam" id="cam">Enter ESP32-CAM stream URL below</div>
+      <div class="camrow">
+        <input id="camUrl" type="text" placeholder="http://192.168.1.51:81/stream" aria-label="Camera stream address" spellcheck="false">
+        <button class="btn" id="camBtn">Stream</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Run Parameters</h2>
+      <div class="grid2">
+        <div><label for="rows">Rows</label><input id="rows" type="number" min="1" max="20" value="7"></div>
+        <div><label for="cols">Columns</label><input id="cols" type="number" min="1" max="20" value="15"></div>
+        <div><label for="depth">Depth (mm)</label><input id="depth" type="number" min="0" max="30" step="0.5" value="4"></div>
+        <div><label for="water">Water (ml)</label><input id="water" type="number" min="0" max="50" step="0.5" value="5"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Controls</h2>
+      <div class="ctl">
+        <button class="btn primary" data-cmd="start">Start</button>
+        <button class="btn" data-cmd="pause">Pause</button>
+        <button class="btn" data-cmd="resume">Resume</button>
+        <button class="btn" data-cmd="stop">Stop</button>
+        <button class="btn" data-cmd="home">Home</button>
+        <button class="btn" data-cmd="reset">Reset</button>
+      </div>
+      <button class="estop" id="estop">EMERGENCY STOP</button>
+    </div>
+
+    <div class="card">
+      <h2>Hardware Status</h2>
+      <ul class="tele">
+        <li><span class="dot" id="d-tank"></span><span class="k">Water Tank</span><span class="v" id="v-tank">—</span></li>
+        <li><span class="dot" id="d-hopper"></span><span class="k">Seed Hopper</span><span class="v" id="v-hopper">—</span></li>
+        <li><span class="dot" id="d-tray"></span><span class="k">Tray Detector</span><span class="v" id="v-tray">—</span></li>
+        <li><span class="dot" id="d-estop"></span><span class="k">Emergency Switch</span><span class="v" id="v-estop">—</span></li>
+        <li><span class="dot" id="d-vac"></span><span class="k">Vacuum Pump</span><span class="v" id="v-vac">—</span></li>
+        <li><span class="dot" id="d-pump"></span><span class="k">Watering Pump</span><span class="v" id="v-pump">—</span></li>
+        <li><span class="dot"></span><span class="k">Head Position</span><span class="v" id="v-pos">—</span></li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>Activity Log</h2>
+      <div id="log" role="log"></div>
+    </div>
+  </aside>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
