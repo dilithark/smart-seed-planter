@@ -1,0 +1,100 @@
+#include <AccelStepper.h>
+
+// --- MOTOR 1 PINS (UNCHANGED) ---
+#define M1_STEP_PIN    25
+#define M1_DIR_PIN     26
+#define M1_ENABLE_PIN  27
+#define M1_LIMIT_PIN   32    // YL-99 OUT / DQ Pin for Motor 1
+
+// --- MOTOR 2 PINS ---
+#define M2_STEP_PIN    12
+#define M2_DIR_PIN     14
+#define M2_ENABLE_PIN  13
+#define M2_LIMIT_PIN   33    // YL-99 OUT / DQ Pin for Motor 2
+
+AccelStepper stepper1(AccelStepper::DRIVER, M1_STEP_PIN, M1_DIR_PIN);
+AccelStepper stepper2(AccelStepper::DRIVER, M2_STEP_PIN, M2_DIR_PIN);
+
+const float HOMING_SPEED  = -1000.0;
+const float HOMING_ACCEL  = 1000.0;
+const float RUNNING_SPEED = 3200.0;
+const float RUNNING_ACCEL = 2000.0;
+
+// Helper function to read stable YL-99 impact signal
+bool isImpactDetected(int limitPin) {
+  // Most YL-99 modules drop LOW when impacted/closed.
+  // If your module outputs HIGH on impact, change LOW to HIGH below.
+  if (digitalRead(limitPin) == LOW) {
+    delayMicroseconds(500); // Debounce delay
+    if (digitalRead(limitPin) == LOW) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void homeMotor(AccelStepper &stepper, int limitPin) {
+  stepper.setMaxSpeed(abs(HOMING_SPEED));
+  stepper.setAcceleration(HOMING_ACCEL);
+  stepper.setSpeed(HOMING_SPEED);
+
+  // 1. Move until impact sensor triggers
+  while (!isImpactDetected(limitPin)) {
+    stepper.runSpeed();
+  }
+
+  stepper.setCurrentPosition(0);
+
+  // 2. Back off positive 300 steps to release contact pressure
+  stepper.moveTo(300); 
+  while (stepper.distanceToGo() != 0) {
+    stepper.run();
+  }
+
+  stepper.setCurrentPosition(0);
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(M1_LIMIT_PIN, INPUT_PULLUP);
+  pinMode(M2_LIMIT_PIN, INPUT_PULLUP);
+
+  pinMode(M1_ENABLE_PIN, OUTPUT);
+  pinMode(M2_ENABLE_PIN, OUTPUT);
+  digitalWrite(M1_ENABLE_PIN, LOW);
+  digitalWrite(M2_ENABLE_PIN, LOW);
+
+  Serial.println("Homing Motor 1 via YL-99 Impact Switch...");
+  homeMotor(stepper1, M1_LIMIT_PIN);
+
+  Serial.println("Homing Motor 2 via YL-99 Impact Switch...");
+  homeMotor(stepper2, M2_LIMIT_PIN);
+
+  stepper1.setMaxSpeed(RUNNING_SPEED);
+  stepper1.setAcceleration(RUNNING_ACCEL);
+  stepper2.setMaxSpeed(RUNNING_SPEED);
+  stepper2.setAcceleration(RUNNING_ACCEL);
+}
+
+void loop() {
+  stepper1.moveTo(6400);
+  stepper2.moveTo(6400);
+
+  while (stepper1.distanceToGo() != 0 || stepper2.distanceToGo() != 0) {
+    stepper1.run();
+    stepper2.run();
+  }
+
+  delay(1000);
+
+  stepper1.moveTo(0);
+  stepper2.moveTo(0);
+
+  while (stepper1.distanceToGo() != 0 || stepper2.distanceToGo() != 0) {
+    stepper1.run();
+    stepper2.run();
+  }
+
+  delay(1000);
+}
